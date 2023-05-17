@@ -1247,3 +1247,489 @@ class MaxViT(tf.keras.layers.Layer):
     self.endpoints['logits'] = output
 
     return output
+
+class parallel_side_block(tf.keras.layers.Layer):
+    def __init__(self,
+                 filters=None,
+                 kernel_size=3,
+                 strides=(1, 1),
+                 padding='same',
+                 depth_multiplier=1,
+                 activation=None,
+                 normalize=False,
+                 final_activation=None,
+                 final_normalize=False,
+                 **kwargs):
+        
+        super(side_conv, self).__init__(**kwargs)
+
+        self.filters          = filters
+        self.kernel_size      = kernel_size
+        self.strides          = strides
+        self.padding          = padding
+        self.depth_multiplier = depth_multiplier
+        self.activation       = activation
+        self.normalize        = normalize
+        self.final_activation = final_activation
+        self.final_normalize  = final_normalize
+
+    def build(self, input_shape): 
+    
+        self.side_conv1  = side_conv(axis=1,
+                                    filters=self.filters,
+                                    kernel_size=self.kernel_size,
+                                    strides=self.strides,
+                                    padding=self.padding,
+                                    depth_multiplier=self.depth_multiplier,
+                                    activation=self.activation,
+                                    normalize=self.normalize)
+        
+        self.side_conv2  = side_conv(axis=2,
+                                    filters=self.filters,
+                                    kernel_size=self.kernel_size,
+                                    strides=self.strides,
+                                    padding=self.padding,
+                                    depth_multiplier=self.depth_multiplier,
+                                    activation=self.activation,
+                                    normalize=self.normaliz)
+        
+        self.norm_layer = tf.keras.layers.experimental.SyncBatchNormalization()
+
+    def call(self, inputs):
+
+        # layer 1
+        out1 = self.side_conv1(inputs)
+
+        # layer 2
+        out2 = self.side_conv2(inputs)
+
+        out = out1 + out2 + inputs
+
+        if self.final_normalize:
+            out = self.norm_layer(out)
+
+        if self.final_activation is not None:
+            out = self.final_activation(out)
+        
+        return out
+
+
+class side_conv(tf.keras.layers.Layer):
+    def __init__(self,
+                 filters=None,
+                 axis=1,
+                 kernel_size=3,
+                 strides=(1, 1),
+                 padding='same',
+                 depth_multiplier=1,
+                 activation=None,
+                 normalize=False,
+                 **kwargs):
+        
+        super(side_conv, self).__init__(**kwargs)
+
+        self.filters          = filters
+        self.axis             = axis
+        self.kernel_size      = kernel_size
+        self.strides          = strides
+        self.padding          = padding
+        self.depth_multiplier = depth_multiplier
+        self.activation       = activation if activation is None else getattr(tf.nn, activation)
+        self.normalize        = normalize
+        
+
+    def build(self, input_shape):
+
+        if self.filters is None:
+            filters = input_shape[self.axis]
+        else:
+            filters = self.filters
+        
+        self.sep_conv   = tf.keras.layers.SeparableConv2D(filters = filters,
+                                                          kernel_size = self.kernel_size,
+                                                          strides = self.strides, 
+                                                          padding = self.padding, 
+                                                          depth_multiplier = self.depth_multiplier)
+        self.norm_layer = tf.keras.layers.experimental.SyncBatchNormalization()
+
+    def call(self, inputs):
+        
+        if self.axis == 1:
+            new_input = tf.transpose(inputs, perm=[0, 2, 3, 1])
+        elif self.axis == 2:
+            new_input = tf.transpose(inputs, perm=[0, 1, 3, 2])
+
+        out = self.sep_conv(new_input)
+        if self.normalize:
+            out = self.norm_layer(out)
+
+        out = self.activation(out)
+
+        if self.axis == 1:
+            out = tf.transpose(out, perm=[0, 3, 1, 2])
+        elif self.axis == 2:
+            out = tf.transpose(out, perm=[0, 1, 3, 2])
+            
+        return out
+
+class parallel_side_block(tf.keras.layers.Layer):
+    def __init__(self,
+                 filters=None,
+                 kernel_size=3,
+                 strides=(1, 1),
+                 padding='same',
+                 depth_multiplier=1,
+                 activation=None,
+                 normalize=False,
+                 final_activation=None,
+                 final_normalize=False,
+                 **kwargs):
+        
+        super(side_conv, self).__init__(**kwargs)
+
+        self.filters          = filters
+        self.kernel_size      = kernel_size
+        self.strides          = strides
+        self.padding          = padding
+        self.depth_multiplier = depth_multiplier
+        self.activation       = activation if activation is None else getattr(tf.nn, activation)
+        self.normalize        = normalize
+        self.final_activation = final_activation if final_activation is None else getattr(tf.nn, final_activation)
+        self.final_normalize  = final_normalize
+
+    def build(self, input_shape): 
+    
+        self.side_conv1  = side_conv(axis=1,
+                                    filters=self.filters,
+                                    kernel_size=self.kernel_size,
+                                    strides=self.strides,
+                                    padding=self.padding,
+                                    depth_multiplier=self.depth_multiplier,
+                                    activation=self.activation,
+                                    normalize=self.normalize)
+        
+        self.side_conv2  = side_conv(axis=2,
+                                    filters=self.filters,
+                                    kernel_size=self.kernel_size,
+                                    strides=self.strides,
+                                    padding=self.padding,
+                                    depth_multiplier=self.depth_multiplier,
+                                    activation=self.activation,
+                                    normalize=self.normaliz)
+        
+        self.norm_layer = tf.keras.layers.experimental.SyncBatchNormalization()
+
+    def call(self, inputs):
+
+        # layer 1
+        out1 = self.side_conv1(inputs)
+
+        # layer 2
+        out2 = self.side_conv2(inputs)
+
+        out = out1 + out2 + inputs
+
+        if self.final_normalize:
+            out = self.norm_layer(out)
+
+        out = self.final_activation(out)
+        
+        return out
+
+class serial_side_block(tf.keras.layers.Layer):
+    def __init__(self,
+                 filters=None,
+                 kernel_size=3,
+                 strides=(1, 1),
+                 padding='same',
+                 depth_multiplier=1,
+                 activation=None,
+                 normalize=False,
+                 final_activation=None,
+                 final_normalize=False,
+                 **kwargs):
+        
+        super(side_conv, self).__init__(**kwargs)
+
+        self.filters          = filters
+        self.kernel_size      = kernel_size
+        self.strides          = strides
+        self.padding          = padding
+        self.depth_multiplier = depth_multiplier
+        self.activation       = activation if activation is None else getattr(tf.nn, activation)
+        self.normalize        = normalize
+        self.final_activation = final_activation if final_activation is None else getattr(tf.nn, final_activation)
+        self.final_normalize  = final_normalize
+
+    def build(self, input_shape):
+
+        self.side_conv1  = side_conv(axis=1,
+                                    filters=self.filters,
+                                    kernel_size=self.kernel_size,
+                                    strides=self.strides,
+                                    padding=self.padding,
+                                    depth_multiplier=self.depth_multiplier,
+                                    activation=self.activation,
+                                    normalize=self.normalize)
+        
+        self.side_conv2  = side_conv(axis=2,
+                                    filters=self.filters,
+                                    kernel_size=self.kernel_size,
+                                    strides=self.strides,
+                                    padding=self.padding,
+                                    depth_multiplier=self.depth_multiplier,
+                                    activation=self.activation,
+                                    normalize=self.normaliz)
+        
+        self.norm_layer = tf.keras.layers.experimental.SyncBatchNormalization()
+
+    def call(self, inputs):
+
+        out = self.side_conv1(inputs)
+        out = self.side_conv2(out)   
+        out = out + inputs
+
+        if self.final_normalize:
+            out = self.norm_layer(out)
+
+        out = self.final_activation(out)
+        
+        return out
+
+        
+class MaxViT_conv(tf.keras.layers.Layer):
+  """MaxViT layer definition."""
+
+  def _retrieve_config(self, config):
+    required_keys = ['block_type', 'num_blocks', 'hidden_size', 'stem_hsize']
+    optional_keys = {
+        # cls head
+        'dropcls': None,
+        'cls_hsize': -1,
+        'cls_bias_init': 0,
+        'num_classes': 1000,
+        # tfm specific
+        'head_size': 32,
+        'dropatt': None,
+        'dropout': None,
+        'rel_attn_type': '2d_multi_head',
+        'window_size': 7,
+        'grid_size': 7,
+        # A string for finetuning at different size, e.g. '384/224'
+        'scale_ratio': None,
+        'ln_epsilon': 1e-5,
+        'ln_dtype': None,
+        # conv specific
+        'downsample_loc': 'depth_conv',
+        'kernel_size': 3,
+        'se_ratio': 0.25,
+        'dropcnn': None,
+        # Only channels_last is supported for now.
+        'data_format': 'channels_last',
+        'norm_type': 'tpu_batch_norm',
+        'bn_epsilon': 1e-3,
+        'bn_momentum': 0.99,
+        'bn_group_size': None,
+        # shared
+        'add_pos_enc': False,
+        'pool_type': 'avg',
+        'pool_stride': 2,
+        'expansion_rate': 4,
+        'activation': 'gelu',
+        'survival_prob': None,
+        'survival_prob_anneal': True,
+        'kernel_initializer': tf.random_normal_initializer(stddev=0.02),
+        'bias_initializer': tf.zeros_initializer,
+        'side_conv_mode': 'serial' #or 'parallel'
+        'final_activation': None,
+        'normalize': False,
+        'final_normalize': False,
+
+    }
+    config = create_config_from_dict(config, required_keys, optional_keys)
+
+    if isinstance(config.block_type, str):
+      config.block_type = [config.block_type]
+    if isinstance(config.hidden_size, int):
+      config.hidden_size = [config.hidden_size]
+    if isinstance(config.stem_hsize, int):
+      config.stem_hsize = [config.stem_hsize]
+
+    return config
+
+  def _local_config(self, config, idx, exclude_regex=None):
+    config = copy.deepcopy(config)
+    for key in config.__dict__:
+      if isinstance(config[key], (list, tuple)):
+        if not exclude_regex or not re.match(exclude_regex, key):
+          config[key] = config[key][idx]
+    return config
+
+  def __init__(self, config, name='maxvit'):
+    super().__init__(name=name)
+
+    self._config = self._retrieve_config(config)
+
+    self.endpoints = {}
+
+  def build(self, input_shape):
+    bsz_per_shard = input_shape.as_list()[0]
+    bn_class = config_batch_norm(self._config, bsz_per_shard)
+
+    # Stem
+    stem_layers = []
+    for i in range(len(self._config.stem_hsize)):
+      conv_layer = tf.keras.layers.Conv2D(
+          filters=self._config.stem_hsize[i],
+          kernel_size=self._config.kernel_size,
+          strides=2 if i == 0 else 1,
+          padding='same',
+          data_format=self._config.data_format,
+          kernel_initializer=self._config.kernel_initializer,
+          bias_initializer=self._config.bias_initializer,
+          use_bias=True,
+          name='conv_{}'.format(i))
+      stem_layers.append(conv_layer)
+      if i < len(self._config.stem_hsize) - 1:
+        stem_layers.append(bn_class(name='norm_{}'.format(i)))
+        stem_layers.append(tf.keras.layers.Activation(
+            ops.get_act_fn(self._config.activation), name='act_{}'.format(i)))
+
+    serial_side_layer   = serial_side_block(activation=self._config.activation,
+                                            normalize=self._config.normalize,
+                                            final_activation=self._config.final_activation,
+                                            final_normalize=self._config.final_normalize)
+
+    parallel_side_layer = parallel_side_block(activation=self._config.activation,
+                                             normalize=self._config.normalize,
+                                             final_activation=self._config.final_activation,
+                                             final_normalize=self._config.final_normalize)
+
+    if self._config.side_conv_mode == 'serial':
+        stem_layers.append(serial_side_layer)
+    elif self._config.side_conv_mode == 'parallel':
+        stem_layers.append(parallel_side_layer)
+
+    self._stem = tf.keras.Sequential(
+        layers=stem_layers,
+        name='stem')
+
+    # Backbone
+    self._blocks = []
+    total_num_blocks = sum(self._config.num_blocks)
+    bid = 0
+    for i in range(len(self._config.block_type)):
+      self._blocks.append([])
+      config_s = self._local_config(self._config, i, '^stem.*')
+      for j in range(config_s.num_blocks):
+        # block name
+        block_name = 'block_{:0>2d}_{:0>2d}'.format(i, j)
+
+        ##### Update per-block config
+        # No pooling if not the first block in the stage
+        config = copy.deepcopy(config_s)
+        if j > 0:
+          config = config.replace(pool_stride=1)
+
+        # anneal the survival prob
+        survival_prob = self._config.survival_prob
+        if survival_prob and self._config.survival_prob_anneal:
+          drop_rate = 1.0 - survival_prob
+          survival_prob = 1.0 - drop_rate * bid / total_num_blocks
+          logging.info('[%02d/%02d] %s survival_prob: %.4f', bid,
+                       total_num_blocks, block_name, survival_prob)
+          config = config.replace(survival_prob=survival_prob)
+
+        ##### Init block
+        if config.block_type == 'maxvit':
+          block = MaxViTBlock(config, name=block_name)
+        else:
+          raise ValueError('Unsupported block_type %s' % config.block_type)
+        self._blocks[-1].append(block)
+
+        bid += 1
+
+    serial_side_layer   = serial_side_block(activation=self._config.activation,
+                                            normalize=self._config.normalize,
+                                            final_activation=self._config.final_activation,
+                                            final_normalize=self._config.final_normalize)
+
+    parallel_side_layer = parallel_side_block(activation=self._config.activation,
+                                             normalize=self._config.normalize,
+                                             final_activation=self._config.final_activation,
+                                             final_normalize=self._config.final_normalize)
+
+    if self._config.side_conv_mode == 'serial':
+        self._blocks.append(serial_side_layer)
+    elif self._config.side_conv_mode == 'parallel':
+        self._blocks.append(parallel_side_layer)
+
+    
+
+    # Pre-classification layer norm
+    self._final_layer_norm = tf.keras.layers.LayerNormalization(
+        axis=-1,
+        epsilon=config.ln_epsilon,
+        dtype=config.ln_dtype,
+        name='final_layer_norm')
+
+    # Classification head
+    cls_layers = []
+    if self._config.cls_hsize:
+      assert isinstance(self._config.cls_hsize, int)
+      if self._config.cls_hsize == -1:
+        cls_hsize = self._config.hidden_size[-1]
+      else:
+        cls_hsize = self._config.cls_hsize
+      inner_dense = TrailDense(
+          cls_hsize,
+          kernel_initializer=self._config.kernel_initializer,
+          bias_initializer=self._config.bias_initializer,
+          name='inner_dense')
+      cls_layers.append(inner_dense)
+      cls_layers.append(tf.keras.layers.Activation(tf.nn.tanh, name='tanh'))
+
+    logit_dense = TrailDense(
+        self._config.num_classes,
+        kernel_initializer=self._config.kernel_initializer,
+        bias_initializer=tf.constant_initializer(self._config.cls_bias_init),
+        name='logit_dense')
+    cls_layers.append(logit_dense)
+
+    self._cls_head = tf.keras.Sequential(
+        layers=cls_layers,
+        name='cls_head')
+
+  def call(self, inputs, training):
+    logging.info('Network inputs: shape %s, dtype %s.',
+                 inputs.shape, inputs.dtype)
+    output = self._stem(inputs, training=training)
+    logging.info('Stage 0 (stem) output: shape %s, dtype %s.',
+                 output.shape, output.dtype)
+    self.endpoints['stage_0'] = output
+    self.endpoints['stem'] = output
+
+    for idx, stage_blocks in enumerate(self._blocks):
+
+      # Blocks forward
+      for block in stage_blocks:
+        output = block(output, training=training)
+      logging.info('Stage %d output: shape %s, dtype %s.',
+                   idx + 1, output.shape, output.dtype)
+      self.endpoints['stage_{}'.format(idx + 1)] = output
+
+    # global average pooling
+    reduce_axes = list(range(1, output.shape.rank - 1))
+    output = tf.reduce_mean(output, axis=reduce_axes)
+    self.endpoints['pooled_features'] = output
+
+    # final layer normalization
+    output = self._final_layer_norm(output)
+    self.endpoints['normed_features'] = output
+
+    # classification head
+    output = self._cls_head(output, training=training)
+    self.endpoints['logits'] = output
+
+    return output
+
