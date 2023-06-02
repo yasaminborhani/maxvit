@@ -1248,71 +1248,6 @@ class MaxViT(tf.keras.layers.Layer):
 
     return output
 
-class parallel_side_block(tf.keras.layers.Layer):
-    def __init__(self,
-                 filters=None,
-                 kernel_size=3,
-                 strides=(1, 1),
-                 padding='same',
-                 depth_multiplier=1,
-                 activation=None,
-                 normalize=False,
-                 final_activation=None,
-                 final_normalize=False,
-                 **kwargs):
-        
-        super(side_conv, self).__init__(**kwargs)
-
-        self.filters          = filters
-        self.kernel_size      = kernel_size
-        self.strides          = strides
-        self.padding          = padding
-        self.depth_multiplier = depth_multiplier
-        self.activation       = activation
-        self.normalize        = normalize
-        self.final_activation = final_activation
-        self.final_normalize  = final_normalize
-
-    def build(self, input_shape): 
-    
-        self.side_conv1  = side_conv(axis=1,
-                                    filters=self.filters,
-                                    kernel_size=self.kernel_size,
-                                    strides=self.strides,
-                                    padding=self.padding,
-                                    depth_multiplier=self.depth_multiplier,
-                                    activation=self.activation,
-                                    normalize=self.normalize)
-        
-        self.side_conv2  = side_conv(axis=2,
-                                    filters=self.filters,
-                                    kernel_size=self.kernel_size,
-                                    strides=self.strides,
-                                    padding=self.padding,
-                                    depth_multiplier=self.depth_multiplier,
-                                    activation=self.activation,
-                                    normalize=self.normaliz)
-        
-        self.norm_layer = tf.keras.layers.experimental.SyncBatchNormalization()
-
-    def call(self, inputs):
-
-        # layer 1
-        out1 = self.side_conv1(inputs)
-
-        # layer 2
-        out2 = self.side_conv2(inputs)
-
-        out = out1 + out2 + inputs
-
-        if self.final_normalize:
-            out = self.norm_layer(out)
-
-        if self.final_activation is not None:
-            out = self.final_activation(out)
-        
-        return out
-
 
 class side_conv(tf.keras.layers.Layer):
     def __init__(self,
@@ -1363,7 +1298,8 @@ class side_conv(tf.keras.layers.Layer):
         if self.normalize:
             out = self.norm_layer(out)
 
-        out = self.activation(out)
+        if self.activation is not None:
+            out = self.activation(out)
 
         if self.axis == 1:
             out = tf.transpose(out, perm=[0, 3, 1, 2])
@@ -1385,7 +1321,7 @@ class parallel_side_block(tf.keras.layers.Layer):
                  final_normalize=False,
                  **kwargs):
         
-        super(side_conv, self).__init__(**kwargs)
+        super(parallel_side_block, self).__init__(**kwargs)
 
         self.filters          = filters
         self.kernel_size      = kernel_size
@@ -1415,7 +1351,7 @@ class parallel_side_block(tf.keras.layers.Layer):
                                     padding=self.padding,
                                     depth_multiplier=self.depth_multiplier,
                                     activation=self.activation,
-                                    normalize=self.normaliz)
+                                    normalize=self.normalize)
         
         self.norm_layer = tf.keras.layers.experimental.SyncBatchNormalization()
 
@@ -1432,7 +1368,8 @@ class parallel_side_block(tf.keras.layers.Layer):
         if self.final_normalize:
             out = self.norm_layer(out)
 
-        out = self.final_activation(out)
+        if self.final_activation is not None:
+            out = self.final_activation(out)
         
         return out
 
@@ -1449,7 +1386,7 @@ class serial_side_block(tf.keras.layers.Layer):
                  final_normalize=False,
                  **kwargs):
         
-        super(side_conv, self).__init__(**kwargs)
+        super(serial_side_block, self).__init__(**kwargs)
 
         self.filters          = filters
         self.kernel_size      = kernel_size
@@ -1479,7 +1416,7 @@ class serial_side_block(tf.keras.layers.Layer):
                                     padding=self.padding,
                                     depth_multiplier=self.depth_multiplier,
                                     activation=self.activation,
-                                    normalize=self.normaliz)
+                                    normalize=self.normalize)
         
         self.norm_layer = tf.keras.layers.experimental.SyncBatchNormalization()
 
@@ -1489,10 +1426,8 @@ class serial_side_block(tf.keras.layers.Layer):
         out = self.side_conv2(out)   
         out = out + inputs
 
-        if self.final_normalize:
-            out = self.norm_layer(out)
-
-        out = self.final_activation(out)
+        if self.final_activation is not None:
+            out = self.final_activation(out)
         
         return out
 
@@ -1540,7 +1475,7 @@ class MaxViT_conv(tf.keras.layers.Layer):
         'survival_prob_anneal': True,
         'kernel_initializer': tf.random_normal_initializer(stddev=0.02),
         'bias_initializer': tf.zeros_initializer,
-        'side_conv_mode': 'serial' #or 'parallel'
+        'side_conv_mode': 'serial', #or 'parallel'
         'final_activation': None,
         'normalize': False,
         'final_normalize': False,
@@ -1595,15 +1530,16 @@ class MaxViT_conv(tf.keras.layers.Layer):
         stem_layers.append(tf.keras.layers.Activation(
             ops.get_act_fn(self._config.activation), name='act_{}'.format(i)))
 
-    serial_side_layer   = serial_side_block(activation=self._config.activation,
+    serial_side_layer   = serial_side_block(activation=None,
                                             normalize=self._config.normalize,
                                             final_activation=self._config.final_activation,
                                             final_normalize=self._config.final_normalize)
 
-    parallel_side_layer = parallel_side_block(activation=self._config.activation,
+    parallel_side_layer = parallel_side_block(activation=None,
                                              normalize=self._config.normalize,
                                              final_activation=self._config.final_activation,
                                              final_normalize=self._config.final_normalize)
+
 
     if self._config.side_conv_mode == 'serial':
         stem_layers.append(serial_side_layer)
@@ -1649,20 +1585,20 @@ class MaxViT_conv(tf.keras.layers.Layer):
 
         bid += 1
 
-    serial_side_layer   = serial_side_block(activation=self._config.activation,
-                                            normalize=self._config.normalize,
-                                            final_activation=self._config.final_activation,
-                                            final_normalize=self._config.final_normalize)
+        serial_side_layer   = serial_side_block(activation=None,
+                                                normalize=self._config.normalize,
+                                                final_activation=self._config.final_activation,
+                                                final_normalize=self._config.final_normalize)
 
-    parallel_side_layer = parallel_side_block(activation=self._config.activation,
-                                             normalize=self._config.normalize,
-                                             final_activation=self._config.final_activation,
-                                             final_normalize=self._config.final_normalize)
+        parallel_side_layer = parallel_side_block(activation=None,
+                                                normalize=self._config.normalize,
+                                                final_activation=self._config.final_activation,
+                                                final_normalize=self._config.final_normalize)
 
-    if self._config.side_conv_mode == 'serial':
-        self._blocks.append(serial_side_layer)
-    elif self._config.side_conv_mode == 'parallel':
-        self._blocks.append(parallel_side_layer)
+        if self._config.side_conv_mode == 'serial':
+            self._blocks[-1].append(serial_side_layer)
+        elif self._config.side_conv_mode == 'parallel':
+            self._blocks[-1].append(parallel_side_layer)
 
     
 
